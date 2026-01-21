@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import joblib
-import xgboost  # MUST be imported before loading model
+import xgboost  # must be imported
 
 st.set_page_config(page_title="Content Engagement Predictor")
 
@@ -14,6 +14,9 @@ st.write("Predict whether a social media post will achieve high engagement")
 model = joblib.load("content_engagement_model.pkl")
 feature_list = joblib.load("feature_list.pkl")
 
+# 🔑 CRITICAL FIX
+model.set_params(validate_features=False)
+
 # -----------------------------
 # User Inputs
 # -----------------------------
@@ -23,7 +26,7 @@ comments = st.number_input("Comments", min_value=0, value=5)
 views = st.number_input("Views", min_value=1, value=1000)
 
 # -----------------------------
-# Feature Engineering (same logic)
+# Feature Engineering
 # -----------------------------
 total_engagement = likes + shares + comments
 engagement_rate = total_engagement / (views + 1)
@@ -32,16 +35,14 @@ comment_depth = comments / (likes + 1)
 content_fatigue = views / (total_engagement + 1)
 
 # -----------------------------
-# IMPORTANT FIX:
-# Create full feature frame FIRST
+# Build full feature vector
 # -----------------------------
 input_df = pd.DataFrame(
-    data=[[0] * len(feature_list)],
+    [[0.0] * len(feature_list)],
     columns=feature_list
 )
 
-# Now overwrite known features
-feature_updates = {
+updates = {
     "likes": likes,
     "shares": shares,
     "comments": comments,
@@ -53,9 +54,9 @@ feature_updates = {
     "ContentFatigue": content_fatigue
 }
 
-for col, val in feature_updates.items():
+for col, val in updates.items():
     if col in input_df.columns:
-        input_df[col] = val
+        input_df[col] = float(val)
 
 # -----------------------------
 # Prediction
@@ -65,9 +66,8 @@ if st.button("Predict Engagement"):
     pred = model.predict(input_df)[0]
 
     if pred == 1:
-        st.success(f"🔥 High Engagement Likely (confidence={prob:.2f})")
+        st.success(f"🔥 High Engagement Likely (confidence = {prob:.2f})")
     else:
-        st.warning(f"⚠️ Low Engagement Risk (confidence={1 - prob:.2f})")
+        st.warning(f"⚠️ Low Engagement Risk (confidence = {1 - prob:.2f})")
 
-    risk_score = int((1 - prob) * 100)
-    st.metric("Engagement Risk Score", risk_score)
+    st.metric("Engagement Risk Score", int((1 - prob) * 100))
