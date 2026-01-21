@@ -1,130 +1,53 @@
-# !pip install xgboost joblib
-
-import pandas as pd
-import numpy as np
-import joblib
 import streamlit as st
-import xgboost
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import classification_report, roc_auc_score
-from xgboost import XGBClassifier
+import pandas as pd
+import joblib
+import xgboost  # REQUIRED before loading model
 
+st.set_page_config(page_title="Content Engagement Predictor")
 
-# -----------------------------
-# Load Dataset (URL)
-# -----------------------------
-url = "https://raw.githubusercontent.com/intern2grow/social-media-data-analysis/main/social_media_data.csv"
-data = pd.read_csv(url)
+st.title("📊 Content Engagement Prediction")
+st.write("Predict whether a social media post will achieve high engagement")
 
-print(data.shape)
-print(data.head())
+# Load model artifacts
+model = joblib.load("content_engagement_model.pkl")
+feature_list = joblib.load("feature_list.pkl")
 
+# User inputs
+likes = st.number_input("Likes", min_value=0, value=100)
+shares = st.number_input("Shares", min_value=0, value=10)
+comments = st.number_input("Comments", min_value=0, value=5)
+views = st.number_input("Views", min_value=1, value=1000)
 
-# -----------------------------
-# Cleaning
-# -----------------------------
-data.dropna(inplace=True)
+# Feature engineering (MUST MATCH TRAINING)
+total_engagement = likes + shares + comments
+engagement_rate = total_engagement / (views + 1)
+share_amplification = shares / (likes + 1)
+comment_depth = comments / (likes + 1)
+content_fatigue = views / (total_engagement + 1)
 
+input_df = pd.DataFrame([{
+    "likes": likes,
+    "shares": shares,
+    "comments": comments,
+    "views": views,
+    "TotalEngagement": total_engagement,
+    "EngagementRate": engagement_rate,
+    "ShareAmplification": share_amplification,
+    "CommentDepth": comment_depth,
+    "ContentFatigue": content_fatigue
+}])
 
-# -----------------------------
-# Feature Engineering (NON-BASIC)
-# -----------------------------
+# Align columns exactly
+input_df = input_df.reindex(columns=feature_list, fill_value=0)
 
-# Total engagement signal
-data["TotalEngagement"] = (
-    data["likes"] + data["shares"] + data["comments"]
-)
+if st.button("Predict Engagement"):
+    prob = model.predict_proba(input_df)[0][1]
+    pred = model.predict(input_df)[0]
 
-# Engagement rate (normalized)
-data["EngagementRate"] = (
-    data["TotalEngagement"] / (data["views"] + 1)
-)
+    if pred == 1:
+        st.success(f"🔥 High Engagement Likely (prob={prob:.2f})")
+    else:
+        st.warning(f"⚠️ Low Engagement Risk (prob={1-prob:.2f})")
 
-# Share amplification (virality signal)
-data["ShareAmplification"] = (
-    data["shares"] / (data["likes"] + 1)
-)
-
-# Comment depth (discussion signal)
-data["CommentDepth"] = (
-    data["comments"] / (data["likes"] + 1)
-)
-
-# Content fatigue proxy
-data["ContentFatigue"] = (
-    data["views"] / (data["TotalEngagement"] + 1)
-)
-
-
-# -----------------------------
-# Target Engineering
-# -----------------------------
-# High engagement = top 25% engagement rate
-threshold = data["EngagementRate"].quantile(0.75)
-data["HighEngagement"] = (
-    data["EngagementRate"] >= threshold
-).astype(int)
-
-
-# -----------------------------
-# Encoding
-# -----------------------------
-encoder = LabelEncoder()
-for col in data.columns:
-    if data[col].dtype == "object":
-        data[col] = encoder.fit_transform(data[col])
-
-
-# -----------------------------
-# Features / Target
-# -----------------------------
-X = data.drop(columns=["HighEngagement"])
-y = data["HighEngagement"]
-
-
-# -----------------------------
-# Train-Test Split
-# -----------------------------
-X_train, X_test, y_train, y_test = train_test_split(
-    X,
-    y,
-    test_size=0.25,
-    random_state=42,
-    stratify=y
-)
-
-
-# -----------------------------
-# Model
-# -----------------------------
-model = XGBClassifier(
-    n_estimators=300,
-    max_depth=5,
-    learning_rate=0.05,
-    subsample=0.8,
-    colsample_bytree=0.8,
-    eval_metric="logloss",
-    random_state=42
-)
-
-model.fit(X_train, y_train)
-
-
-# -----------------------------
-# Evaluation
-# -----------------------------
-preds = model.predict(X_test)
-probs = model.predict_proba(X_test)[:, 1]
-
-print(classification_report(y_test, preds))
-print("ROC AUC:", roc_auc_score(y_test, probs))
-
-
-# -----------------------------
-# Save Model & Features
-# -----------------------------
-joblib.dump(model, "content_engagement_model.pkl")
-joblib.dump(X.columns.tolist(), "feature_list.pkl")
-
-print("✅ Saved content_engagement_model.pkl & feature_list.pkl")
+    risk_score = int((1 - prob) * 100)
+    st.metric("Engagement Risk Score", risk_score)
